@@ -29,10 +29,58 @@ import * as activities from './activities.js';
 
 dotenv.config();
 
+// CRITICAL FIX: Ensure node.exe is on PATH for Claude SDK subprocess spawning
+// The SDK spawns "node" to run CLI, which fails on Windows without explicit PATH
+const nodeDir = path.dirname(process.execPath);
+const pathSep = process.platform === 'win32' ? ';' : ':';
+process.env.PATH = `${nodeDir}${pathSep}${process.env.PATH || ''}`;
+
+console.log(chalk.gray(`[Worker Init] Node.js: ${process.execPath}`));
+console.log(chalk.gray(`[Worker Init] PATH updated to include: ${nodeDir}`));
+
+// Verify API key is loaded
+const apiKeySet = !!process.env.ANTHROPIC_API_KEY;
+const apiKeyPreview = process.env.ANTHROPIC_API_KEY?.substring(0, 20) || 'NOT SET';
+console.log(chalk.gray(`[Worker Init] ANTHROPIC_API_KEY: ${apiKeySet ? apiKeyPreview + '...' : 'NOT SET'}`));
+
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+/**
+ * Wait for Temporal server to be available before starting the worker.
+ * Prevents connection refused errors during startup.
+ */
+async function waitForTemporal(
+  address: string,
+  maxRetries: number = 30,
+  intervalMs: number = 2000
+): Promise<void> {
+  for (let i = 0; i < maxRetries; i++) {
+    try {
+      const conn = await NativeConnection.connect({ address });
+      await conn.close();
+      console.log(chalk.green(`✓ Temporal server ready at ${address}`));
+      return;
+    } catch (err) {
+      const remaining = maxRetries - i - 1;
+      if (remaining > 0) {
+        console.log(
+          chalk.gray(
+            `Waiting for Temporal at ${address}... (${i + 1}/${maxRetries}, ${remaining} attempts remaining)`
+          )
+        );
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+    }
+  }
+  throw new Error(`Temporal not available at ${address} after ${maxRetries} retries`);
+}
 
 async function runWorker(): Promise<void> {
   const address = process.env.TEMPORAL_ADDRESS || 'localhost:7233';
+  
+  // Wait for Temporal to be ready before connecting
+  await waitForTemporal(address);
+  
   console.log(chalk.cyan(`Connecting to Temporal at ${address}...`));
 
   const connection = await NativeConnection.connect({ address });

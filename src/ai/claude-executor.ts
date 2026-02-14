@@ -6,7 +6,8 @@
 
 // Production Claude agent execution with retry, git checkpoints, and audit logging
 
-import { fs, path } from 'zx';
+import { fs, path as zxPath } from 'zx';
+import { dirname } from 'node:path';
 import chalk, { type ChalkInstance } from 'chalk';
 import { query } from '@anthropic-ai/claude-agent-sdk';
 
@@ -90,10 +91,13 @@ function buildMcpServers(
         mcpArgs.push('--browser', 'chromium');
       }
 
+      // Enable headed browser for real-time monitoring (set to 'false' to see Shannon work)
+      const headlessMode = process.env.SHANNON_HEADLESS || 'false';
+      
       const envVars: Record<string, string> = Object.fromEntries(
         Object.entries({
           ...process.env,
-          PLAYWRIGHT_HEADLESS: 'true',
+          PLAYWRIGHT_HEADLESS: headlessMode,
           ...(isDocker && { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }),
         }).filter((entry): entry is [string, string] => entry[1] !== undefined)
       );
@@ -114,6 +118,15 @@ function outputLines(lines: string[]): void {
   for (const line of lines) {
     console.log(line);
   }
+}
+
+function parseAgentTimeoutMs(): number {
+  const raw = process.env.SHANNON_AGENT_TIMEOUT_MS || '1200000'; // 20 minutes default
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return 1_200_000;
+  }
+  return parsed;
 }
 
 async function writeErrorLog(
@@ -140,7 +153,7 @@ async function writeErrorLog(
       },
       duration
     };
-    const logPath = path.join(sourceDir, 'error.log');
+    const logPath = zxPath.join(sourceDir, 'error.log');
     await fs.appendFile(logPath, JSON.stringify(errorLog) + '\n');
   } catch (logError) {
     const logErrMsg = logError instanceof Error ? logError.message : String(logError);
@@ -207,6 +220,15 @@ export async function runClaudePrompt(
 ): Promise<ClaudePromptResult> {
   const timer = new Timer(`agent-${description.toLowerCase().replace(/\s+/g, '-')}`);
   const fullPrompt = context ? `${context}\n\n${prompt}` : prompt;
+  const agentTimeoutMs = parseAgentTimeoutMs();
+  const abortController = new AbortController();
+  let timedOut = false;
+  const abortTimer = setTimeout(() => {
+    timedOut = true;
+    console.log(chalk.yellow(`    ⏱️ Agent timeout reached (${Math.floor(agentTimeoutMs / 1000)}s), aborting Claude process...`));
+    abortController.abort(new Error(`Agent timed out after ${agentTimeoutMs}ms`));
+  }, agentTimeoutMs);
+  abortTimer.unref?.();
 
   const execContext = detectExecutionContext(description);
   const progress = createProgressManager(
@@ -218,12 +240,30 @@ export async function runClaudePrompt(
   console.log(chalk.blue(`  Running Claude Code: ${description}...`));
 
   const mcpServers = buildMcpServers(sourceDir, agentName);
+  
+  // Ensure node binary is findable by SDK subprocess spawn (Windows compatibility)
+  // The SDK spawns "node" to run cli.js, which fails on Windows without explicit PATH
+  const nodeDir = dirname(process.execPath);
+  const pathSep = process.platform === 'win32' ? ';' : ':';
+  const processEnv = {
+    ...process.env,
+    PATH: `${nodeDir}${pathSep}${process.env.PATH || ''}`,
+  };
+  
+  console.log(chalk.gray(`    Node.js binary: ${process.execPath}`));
+  console.log(chalk.gray(`    Node directory: ${nodeDir}`));
+  console.log(chalk.gray(`    PATH (first 200 chars): ${processEnv.PATH?.substring(0, 200)}`));
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  console.log(chalk.gray(`    ANTHROPIC_API_KEY in env: ${apiKey ? 'YES (' + apiKey.substring(0, 20) + '...)' : 'NO'}`));
+  
   const options = {
     model: 'claude-sonnet-4-5-20250929',
     maxTurns: 10_000,
     cwd: sourceDir,
     permissionMode: 'bypassPermissions' as const,
     mcpServers,
+    env: processEnv,
+    abortController,
   };
 
   if (!execContext.useCleanOutput) {
@@ -292,25 +332,34 @@ export async function runClaudePrompt(
     };
 
   } catch (error) {
+    clearTimeout(abortTimer);
     const duration = timer.stop();
     timingResults.agents[execContext.agentKey] = duration;
 
     const err = error as Error & { code?: string; status?: number };
+    const effectiveErr =
+      timedOut
+        ? Object.assign(new Error(`Agent timed out after ${Math.floor(agentTimeoutMs / 1000)}s`), {
+            name: 'AgentTimeoutError',
+          })
+        : err;
 
-    await auditLogger.logError(err, duration, turnCount);
+    await auditLogger.logError(effectiveErr, duration, turnCount);
     progress.stop();
-    outputLines(formatErrorOutput(err, execContext, description, duration, sourceDir, isRetryableError(err)));
-    await writeErrorLog(err, sourceDir, fullPrompt, duration);
+    outputLines(formatErrorOutput(effectiveErr, execContext, description, duration, sourceDir, isRetryableError(effectiveErr)));
+    await writeErrorLog(effectiveErr, sourceDir, fullPrompt, duration);
 
     return {
-      error: err.message,
-      errorType: err.constructor.name,
+      error: effectiveErr.message,
+      errorType: effectiveErr.name,
       prompt: fullPrompt.slice(0, 100) + '...',
       success: false,
       duration,
       cost: totalCost,
-      retryable: isRetryableError(err)
+      retryable: isRetryableError(effectiveErr)
     };
+  } finally {
+    clearTimeout(abortTimer);
   }
 }
 

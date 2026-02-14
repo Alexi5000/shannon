@@ -1,0 +1,31 @@
+{
+  "authorized_targets": [
+    {
+      "url": "http://localhost",
+      "authorized_by": "development-team",
+      "authorization_token": "shannon-dev-local",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "dev",
+      "notes": "Local development - all localhost targets authorized"
+    },
+    {
+      "url": "127.0.0.1",
+      "authorized_by": "development-team",
+      "authorization_token": "shannon-dev-local",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "dev",
+      "notes": "Local development - all 127.0.0.1 targets authorized"
+    },
+    {
+      "url": "techtideai.io",
+      "authorized_by": "security-team",
+      "authorization_token": "shannon-techtide-authorized",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "staging",
+      "notes": "TechTide company website - authorized for security testing"
+    }
+  ],
+  "emergency_stop_enabled": true,
+  "require_explicit_consent": false,
+  "production_block_enabled": false
+}

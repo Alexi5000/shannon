@@ -7,6 +7,7 @@ export interface PipelineInput {
   repoPath: string;
   configPath?: string;
   outputPath?: string;
+  mode?: 'white_box' | 'black_box';
   pipelineTestingMode?: boolean;
   workflowId?: string; // Added by client, used for audit correlation
 }

@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Shannon - AI Pentester</title>
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Header -->
+        <header class="header">
+            <div class="header-left">
+                <div class="brand">
+                    <span class="brand-name">SHANNON</span>
+                    <span class="brand-subtitle">AI Pentester</span>
+                </div>
+            </div>
+            <div class="header-right">
+                <div class="status-badge" id="statusBadge">
+                    <span class="status-dot"></span>
+                    <span class="status-text">IDLE</span>
+                </div>
+                <div class="port-info">
+                    <span class="port-label">HTTP:</span> <span class="port-value" id="httpPort">4005</span>
+                    <span class="port-label">WS:</span> <span class="port-value" id="wsPort">4006</span>
+                </div>
+                <a href="http://localhost:3000" class="techtide-link" target="_blank">TechTide</a>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main class="main-content">
+            <!-- Control Panel -->
+            <section class="control-panel">
+                <div class="input-group">
+                    <label for="targetUrl">TARGET</label>
+                    <input type="text" id="targetUrl" placeholder="https://example.com" class="input-field">
+                </div>
+                <div class="input-group">
+                    <label for="repoPath">REPO (Optional - enables white-box mode)</label>
+                    <input type="text" id="repoPath" placeholder="/path/to/repository (optional for black-box)" class="input-field">
+                </div>
+                <div class="input-group">
+                    <label for="configPath">CONFIG (Optional)</label>
+                    <input type="text" id="configPath" placeholder="./configs/my-config.yaml" class="input-field">
+                </div>
+                <div class="input-group">
+                    <label for="browserProfile">BROWSER PROFILE</label>
+                    <select id="browserProfile" class="input-field">
+                        <option value="red_team" selected>Red Team (aggressive, full capture)</option>
+                        <option value="standard">Standard (balanced)</option>
+                        <option value="minimal">Minimal (fast, low overhead)</option>
+                        <option value="debug">Debug (headed browser, verbose)</option>
+                    </select>
+                </div>
+                <div class="button-group">
+                    <button id="startBtn" class="btn btn-primary">START PENTEST</button>
+                    <button id="stopBtn" class="btn btn-secondary" disabled>STOP</button>
+                </div>
+            </section>
+
+            <!-- Pipeline Visualization -->
+            <section class="pipeline-section">
+                <h2 class="section-title">PIPELINE</h2>
+                <div class="pipeline-container">
+                    <div class="pipeline-flow">
+                        <!-- Phase 1: Pre-Recon -->
+                        <div class="pipeline-node" data-agent="pre-recon">
+                            <span class="node-label">pre-recon</span>
+                        </div>
+                        <div class="pipeline-arrow">→</div>
+                        
+                        <!-- Phase 2: Recon -->
+                        <div class="pipeline-node" data-agent="recon">
+                            <span class="node-label">recon</span>
+                        </div>
+                        <div class="pipeline-arrow">→</div>
+                        
+                        <!-- Phase 3: Vuln Analysis (Parallel) -->
+                        <div class="pipeline-parallel">
+                            <div class="pipeline-branch">
+                                <div class="pipeline-node" data-agent="injection-vuln">
+                                    <span class="node-label">inj-vuln</span>
+                                </div>
+                                <div class="pipeline-arrow">→</div>
+                                <div class="pipeline-node" data-agent="injection-exploit">
+                                    <span class="node-label">inj-exploit</span>
+                                </div>
+                            </div>
+                            <div class="pipeline-branch">
+                                <div class="pipeline-node" data-agent="xss-vuln">
+                                    <span class="node-label">xss-vuln</span>
+                                </div>
+                                <div class="pipeline-arrow">→</div>
+                                <div class="pipeline-node" data-agent="xss-exploit">
+                                    <span class="node-label">xss-exploit</span>
+                                </div>
+                            </div>
+                            <div class="pipeline-branch">
+                                <div class="pipeline-node" data-agent="auth-vuln">
+                                    <span class="node-label">auth-vuln</span>
+                                </div>
+                                <div class="pipeline-arrow">→</div>
+                                <div class="pipeline-node" data-agent="auth-exploit">
+                                    <span class="node-label">auth-exploit</span>
+                                </div>
+                            </div>
+                            <div class="pipeline-branch">
+                                <div class="pipeline-node" data-agent="ssrf-vuln">
+                                    <span class="node-label">ssrf-vuln</span>
+                                </div>
+                                <div class="pipeline-arrow">→</div>
+                                <div class="pipeline-node" data-agent="ssrf-exploit">
+                                    <span class="node-label">ssrf-exploit</span>
+                                </div>
+                            </div>
+                            <div class="pipeline-branch">
+                                <div class="pipeline-node" data-agent="authz-vuln">
+                                    <span class="node-label">authz-vuln</span>
+                                </div>
+                                <div class="pipeline-arrow">→</div>
+                                <div class="pipeline-node" data-agent="authz-exploit">
+                                    <span class="node-label">authz-exploit</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="pipeline-arrow">→</div>
+                        
+                        <!-- Phase 4: Report -->
+                        <div class="pipeline-node" data-agent="report">
+                            <span class="node-label">report</span>
+                        </div>
+                    </div>
+                    <div class="pipeline-legend">
+                        <span class="legend-item"><span class="legend-dot pending"></span> Pending</span>
+                        <span class="legend-item"><span class="legend-dot running"></span> Running</span>
+                        <span class="legend-item"><span class="legend-dot exploiting"></span> Exploiting</span>
+                        <span class="legend-item"><span class="legend-dot complete"></span> Complete</span>
+                        <span class="legend-item"><span class="legend-dot failed"></span> Failed</span>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Terminal Output -->
+            <section class="terminal-section">
+                <div class="terminal-header">
+                    <h2 class="section-title">LIVE TERMINAL</h2>
+                    <div class="terminal-controls">
+                        <button id="scrollLockBtn" class="btn-icon" title="Toggle Scroll Lock">
+                            <span class="icon">⏸</span>
+                        </button>
+                        <button id="clearBtn" class="btn-icon" title="Clear Terminal">
+                            <span class="icon">🗑</span>
+                        </button>
+                    </div>
+                </div>
+                <div class="terminal-output" id="terminal">
+                    <div class="terminal-prompt">$ Shannon v1.0 - Ready</div>
+                </div>
+            </section>
+
+            <!-- Metrics Bar -->
+            <section class="metrics-bar">
+                <div class="metric">
+                    <span class="metric-label">ELAPSED:</span>
+                    <span class="metric-value" id="elapsedTime">--</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">AGENTS:</span>
+                    <span class="metric-value" id="agentProgress">0/13</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">COST:</span>
+                    <span class="metric-value" id="totalCost">$0.00</span>
+                </div>
+                <div class="metric">
+                    <span class="metric-label">TURNS:</span>
+                    <span class="metric-value" id="totalTurns">0</span>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/app.js"></script>
+</body>
+</html>

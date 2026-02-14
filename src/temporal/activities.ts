@@ -20,6 +20,7 @@
 
 import { heartbeat, ApplicationFailure, Context } from '@temporalio/activity';
 import chalk from 'chalk';
+import { fs } from 'zx';
 
 // Max lengths to prevent Temporal protobuf buffer overflow
 const MAX_ERROR_MESSAGE_LENGTH = 2000;
@@ -87,6 +88,7 @@ export interface ActivityInput {
   repoPath: string;
   configPath?: string;
   outputPath?: string;
+  mode?: 'white_box' | 'black_box';
   pipelineTestingMode?: boolean;
   workflowId: string;
 }
@@ -111,12 +113,13 @@ async function runAgentActivity(
 ): Promise<AgentMetrics> {
   const {
     webUrl,
-    repoPath,
+    repoPath: inputRepoPath,
     configPath,
     outputPath,
     pipelineTestingMode = false,
     workflowId,
   } = input;
+  const repoPath = inputRepoPath?.trim() || `repos/black-box-${workflowId}`;
 
   const startTime = Date.now();
 
@@ -130,6 +133,10 @@ async function runAgentActivity(
   }, HEARTBEAT_INTERVAL_MS);
 
   try {
+    // Ensure workspace exists before any prompt execution / SDK subprocess spawn.
+    // Black-box UI runs may provide an auto-generated repo path that is not created yet.
+    await fs.ensureDir(repoPath);
+
     // 1. Load config (if provided)
     let distributedConfig: DistributedConfig | null = null;
     if (configPath) {
@@ -211,6 +218,15 @@ async function runAgentActivity(
         model: result.model,
         error: result.error || 'Execution failed',
       });
+
+      if (result.errorType === 'AgentTimeoutError') {
+        throw ApplicationFailure.nonRetryable(
+          `Agent ${agentName} timed out: ${result.error || 'Execution exceeded timeout'}`,
+          'ExecutionLimitError',
+          [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
+        );
+      }
+
       throw new Error(result.error || 'Agent execution failed');
     }
 
@@ -307,6 +323,52 @@ async function runAgentActivity(
 // Each function is a thin wrapper around runAgentActivity with the agent name.
 
 export async function runPreReconAgent(input: ActivityInput): Promise<AgentMetrics> {
+  // Black-box mode has no source repository by definition.
+  // Bootstrap a minimal pre-recon deliverable so recon can proceed with live target mapping.
+  if (input.mode === 'black_box') {
+    const start_time_ms = Date.now();
+    const repo_path = input.repoPath?.trim() || `repos/black-box-${input.workflowId}`;
+    const deliverables_dir = `${repo_path}/deliverables`;
+    const pre_recon_path = `${deliverables_dir}/pre_recon_deliverable.md`;
+
+    await fs.ensureDir(deliverables_dir);
+    const already_exists = await fs.pathExists(pre_recon_path);
+
+    if (!already_exists) {
+      const report = [
+        '# Pre-Reconnaissance Report',
+        '',
+        `- Mode: black_box`,
+        `- Target: ${input.webUrl}`,
+        `- Workflow ID: ${input.workflowId}`,
+        `- Generated At: ${new Date().toISOString()}`,
+        '',
+        '## Source Code Availability',
+        'No repository was provided for this run. Continue with live application and network-surface reconnaissance.',
+        '',
+        '## External Scans',
+        'No precomputed external scan outputs were attached to this run.',
+        '',
+        '## Analyst Guidance',
+        '- Focus on browser-driven endpoint discovery and authentication flows.',
+        '- Build attack-surface inventory from live interactions and observable responses.',
+      ].join('\n');
+      await fs.writeFile(pre_recon_path, report);
+      console.log(chalk.blue(`📝 Bootstrapped black-box pre-recon deliverable at ${pre_recon_path}`));
+    } else {
+      console.log(chalk.gray(`📝 Using existing pre-recon deliverable at ${pre_recon_path}`));
+    }
+
+    return {
+      durationMs: Date.now() - start_time_ms,
+      inputTokens: null,
+      outputTokens: null,
+      costUsd: 0,
+      numTurns: 0,
+      model: 'black-box-bootstrap',
+    };
+  }
+
   return runAgentActivity('pre-recon', input);
 }
 

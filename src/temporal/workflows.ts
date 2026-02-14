@@ -131,6 +131,7 @@ export async function pentestPipelineWorkflow(
     webUrl: input.webUrl,
     repoPath: input.repoPath,
     workflowId,
+    ...(input.mode !== undefined && { mode: input.mode }),
     ...(input.configPath !== undefined && { configPath: input.configPath }),
     ...(input.outputPath !== undefined && { outputPath: input.outputPath }),
     ...(input.pipelineTestingMode !== undefined && {
@@ -173,6 +174,8 @@ export async function pentestPipelineWorkflow(
     ): Promise<VulnExploitPipelineResult> {
       // Step 1: Run vulnerability agent
       const vulnMetrics = await runVulnAgent();
+      state.agentMetrics[`${vulnType}-vuln`] = vulnMetrics;
+      state.completedAgents.push(`${vulnType}-vuln`);
 
       // Step 2: Check exploitation queue (starts immediately after vuln)
       const decision = await a.checkExploitationQueue(activityInput, vulnType);
@@ -181,6 +184,8 @@ export async function pentestPipelineWorkflow(
       let exploitMetrics: AgentMetrics | null = null;
       if (decision.shouldExploit) {
         exploitMetrics = await runExploitAgent();
+        state.agentMetrics[`${vulnType}-exploit`] = exploitMetrics;
+        state.completedAgents.push(`${vulnType}-exploit`);
       }
 
       return {
@@ -229,19 +234,7 @@ export async function pentestPipelineWorkflow(
     const failedPipelines: string[] = [];
     for (const result of pipelineResults) {
       if (result.status === 'fulfilled') {
-        const { vulnType, vulnMetrics, exploitMetrics } = result.value;
-
-        // Record vuln agent metrics
-        if (vulnMetrics) {
-          state.agentMetrics[`${vulnType}-vuln`] = vulnMetrics;
-          state.completedAgents.push(`${vulnType}-vuln`);
-        }
-
-        // Record exploit agent metrics (if it ran)
-        if (exploitMetrics) {
-          state.agentMetrics[`${vulnType}-exploit`] = exploitMetrics;
-          state.completedAgents.push(`${vulnType}-exploit`);
-        }
+        continue;
       } else {
         // Pipeline failed - log error but continue with others
         const errorMsg =

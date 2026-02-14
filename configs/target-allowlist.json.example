@@ -1,0 +1,23 @@
+{
+  "authorized_targets": [
+    {
+      "url": "http://localhost",
+      "authorized_by": "security-team",
+      "authorization_token": "shannon-local-dev-token",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "dev",
+      "notes": "Local development and testing environments"
+    },
+    {
+      "url": "https://staging.example.com",
+      "authorized_by": "security-lead",
+      "authorization_token": "shannon-staging-2026",
+      "expires_at": "2026-06-01T00:00:00.000Z",
+      "scope": "staging",
+      "notes": "Quarterly staging penetration test"
+    }
+  ],
+  "emergency_stop_enabled": true,
+  "require_explicit_consent": true,
+  "production_block_enabled": true
+}
