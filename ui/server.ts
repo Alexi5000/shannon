@@ -186,6 +186,16 @@ app.post('/api/pentest/start', async (c) => {
       return c.json({ error: 'Missing required field: url' }, 400);
     }
 
+    // Authorization gate -- check before any workflow starts
+    const auth_result = await is_target_authorized(url);
+    if (!auth_result.authorized) {
+      return c.json({
+        error: 'Target not authorized',
+        reason: auth_result.reason,
+        message: 'Configure target-allowlist.json or use localhost targets'
+      }, 403);
+    }
+
     if (!allow_parallel) {
       const workflows = await temporal.listWorkflows(50);
       const running_workflow_ids = workflows

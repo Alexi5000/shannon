@@ -65,6 +65,13 @@ export class TemporalBridge {
     }
   }
 
+  async reconnect(): Promise<void> {
+    console.log('[TemporalBridge] Reconnecting to Temporal server...');
+    await this.disconnect();
+    await this.connect();
+    console.log('[TemporalBridge] Reconnection complete');
+  }
+
   async startPentest(config: PentestConfig): Promise<string> {
     await this.connect();
     if (!this.client) throw new Error('Temporal client not initialized');

@@ -19,9 +19,11 @@ export class ShannonWebSocketServer {
   private subscriptions: Map<string, Set<ClientSubscription>> = new Map();
   private pollIntervals: Map<string, NodeJS.Timeout> = new Map();
   private lastPollErrors: Map<string, { message: string; timestampMs: number }> = new Map();
+  private consecutiveErrors: Map<string, number> = new Map();
   private readonly port: number;
   private readonly pollInterval: number = 5000; // 5 seconds (reduce Temporal query pressure)
   private readonly pollErrorBackoff: number = 10000; // 10 seconds after query errors
+  private readonly maxConsecutiveErrors: number = 5; // Trigger reconnection after N consecutive errors
 
   constructor(port: number = 4006) {
     this.port = port;
@@ -163,6 +165,9 @@ export class ShannonWebSocketServer {
         this.broadcastProgress(workflowId, progress);
         await this.streamLogs(workflowId);
 
+        // Reset error counter on success
+        this.consecutiveErrors.set(workflowId, 0);
+
         // Stop polling if workflow is complete or failed
         if (progress.status === 'completed' || progress.status === 'failed') {
           this.stopPolling(workflowId);
@@ -179,6 +184,23 @@ export class ShannonWebSocketServer {
         console.error(`[WS] Polling error for ${workflowId}:`, error);
         nextDelay = this.pollErrorBackoff;
         const errorMessage = `Failed to query workflow: ${error instanceof Error ? error.message : 'Unknown error'}`;
+        
+        // Track consecutive errors for reconnection logic
+        const errorCount = (this.consecutiveErrors.get(workflowId) || 0) + 1;
+        this.consecutiveErrors.set(workflowId, errorCount);
+        
+        // Attempt reconnection if too many consecutive errors
+        if (errorCount >= this.maxConsecutiveErrors) {
+          console.warn(`[WS] ${errorCount} consecutive errors for ${workflowId}, attempting Temporal reconnection...`);
+          try {
+            await temporal.reconnect();
+            console.log(`[WS] Temporal reconnection successful`);
+            this.consecutiveErrors.set(workflowId, 0);
+          } catch (reconnectError) {
+            console.error(`[WS] Temporal reconnection failed:`, reconnectError);
+          }
+        }
+        
         if (shouldBroadcastPollingError(errorMessage)) {
           this.broadcast(workflowId, {
             type: 'error',
@@ -210,6 +232,7 @@ export class ShannonWebSocketServer {
       this.pollIntervals.delete(workflowId);
     }
     this.lastPollErrors.delete(workflowId);
+    this.consecutiveErrors.delete(workflowId);
   }
 
   private broadcastProgress(workflowId: string, progress: PipelineProgress): void {
