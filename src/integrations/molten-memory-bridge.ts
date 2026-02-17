@@ -29,7 +29,7 @@ export class MoltenMemoryBridge {
 
   constructor(config?: Partial<MoltenMemoryBridgeConfig>) {
     this.config = {
-      memory_api_url: config?.memory_api_url ?? process.env.MOLTEN_MEMORY_API_URL ?? 'http://localhost:3000/api/memories',
+      memory_api_url: config?.memory_api_url ?? process.env.MOLTEN_MEMORY_API_URL ?? 'http://localhost:18789/api/memories',
       namespace: config?.namespace ?? 'security',
       agent_id: config?.agent_id ?? 'shannon-pentester',
       framework: config?.framework ?? 'shannon'
