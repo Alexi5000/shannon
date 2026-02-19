@@ -15,6 +15,7 @@ import fs from 'fs';
 import path from 'path';
 import { generateWorkflowLogPath, ensureDirectory, type SessionMetadata } from './utils.js';
 import { formatDuration, formatTimestamp } from '../utils/formatting.js';
+import { format_tool_params } from './tool-formatter.js';
 
 export interface AgentLogDetails {
   attemptNumber?: number;
@@ -211,94 +212,13 @@ export class WorkflowLogger {
   /**
    * Truncate string to max length with ellipsis
    */
-  private truncate(str: string, maxLen: number): string {
-    if (str.length <= maxLen) return str;
-    return str.slice(0, maxLen - 3) + '...';
-  }
-
-  /**
-   * Format tool parameters for human-readable display
-   */
-  private formatToolParams(toolName: string, params: unknown): string {
-    if (!params || typeof params !== 'object') {
-      return '';
-    }
-
-    const p = params as Record<string, unknown>;
-
-    // Tool-specific formatting for common tools
-    switch (toolName) {
-      case 'Bash':
-        if (p.command) {
-          return this.truncate(String(p.command).replace(/\n/g, ' '), 100);
-        }
-        break;
-      case 'Read':
-        if (p.file_path) {
-          return String(p.file_path);
-        }
-        break;
-      case 'Write':
-        if (p.file_path) {
-          return String(p.file_path);
-        }
-        break;
-      case 'Edit':
-        if (p.file_path) {
-          return String(p.file_path);
-        }
-        break;
-      case 'Glob':
-        if (p.pattern) {
-          return String(p.pattern);
-        }
-        break;
-      case 'Grep':
-        if (p.pattern) {
-          const path = p.path ? ` in ${p.path}` : '';
-          return `"${this.truncate(String(p.pattern), 50)}"${path}`;
-        }
-        break;
-      case 'WebFetch':
-        if (p.url) {
-          return String(p.url);
-        }
-        break;
-      case 'mcp__playwright__browser_navigate':
-        if (p.url) {
-          return String(p.url);
-        }
-        break;
-      case 'mcp__playwright__browser_click':
-        if (p.selector) {
-          return this.truncate(String(p.selector), 60);
-        }
-        break;
-      case 'mcp__playwright__browser_type':
-        if (p.selector) {
-          const text = p.text ? `: "${this.truncate(String(p.text), 30)}"` : '';
-          return `${this.truncate(String(p.selector), 40)}${text}`;
-        }
-        break;
-    }
-
-    // Default: show first string-valued param truncated
-    for (const [key, val] of Object.entries(p)) {
-      if (typeof val === 'string' && val.length > 0) {
-        return `${key}=${this.truncate(val, 60)}`;
-      }
-    }
-
-    return '';
-  }
-
   /**
    * Log tool start event
    */
   async logToolStart(agentName: string, toolName: string, parameters: unknown): Promise<void> {
     await this.ensureInitialized();
 
-    const params = this.formatToolParams(toolName, parameters);
+    const params = format_tool_params(toolName, parameters);
     const paramStr = params ? `: ${params}` : '';
     const line = `[${this.formatLogTime()}] [${agentName}] [TOOL] ${toolName}${paramStr}\n`;
     await this.writeRaw(line);

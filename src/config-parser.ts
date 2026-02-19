@@ -10,6 +10,7 @@ import yaml from 'js-yaml';
 import { Ajv, type ValidateFunction } from 'ajv';
 import type { FormatsPlugin } from 'ajv-formats';
 import { PentestError } from './error-handling.js';
+import { validate_rule_type_specific } from './config/rule-validators.js';
 import type {
   Config,
   Rule,
@@ -229,63 +230,8 @@ const validateRulesSecurity = (rules: Rule[] | undefined, ruleType: string): voi
     }
 
     // Type-specific validation
-    validateRuleTypeSpecific(rule, ruleType, index);
+    validate_rule_type_specific(rule, ruleType, index);
   });
-};
-
-// Validate rule based on its specific type
-const validateRuleTypeSpecific = (rule: Rule, ruleType: string, index: number): void => {
-  switch (rule.type) {
-    case 'path':
-      if (!rule.url_path.startsWith('/')) {
-        throw new Error(`rules.${ruleType}[${index}].url_path for type 'path' must start with '/'`);
-      }
-      break;
-
-    case 'subdomain':
-    case 'domain':
-      // Basic domain validation - no slashes allowed
-      if (rule.url_path.includes('/')) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type '${rule.type}' cannot contain '/' characters`
-        );
-      }
-      // Must contain at least one dot for domains
-      if (rule.type === 'domain' && !rule.url_path.includes('.')) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'domain' must be a valid domain name`
-        );
-      }
-      break;
-
-    case 'method': {
-      const allowedMethods = ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD', 'OPTIONS'];
-      if (!allowedMethods.includes(rule.url_path.toUpperCase())) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'method' must be one of: ${allowedMethods.join(', ')}`
-        );
-      }
-      break;
-    }
-
-    case 'header':
-      // Header name validation (basic)
-      if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'header' must be a valid header name (alphanumeric, hyphens, underscores only)`
-        );
-      }
-      break;
-
-    case 'parameter':
-      // Parameter name validation (basic)
-      if (!rule.url_path.match(/^[a-zA-Z0-9\-_]+$/)) {
-        throw new Error(
-          `rules.${ruleType}[${index}].url_path for type 'parameter' must be a valid parameter name (alphanumeric, hyphens, underscores only)`
-        );
-      }
-      break;
-  }
 };
 
 // Check for duplicate rules

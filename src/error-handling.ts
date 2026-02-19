@@ -6,6 +6,19 @@
 
 import chalk from 'chalk';
 import { fs, path } from 'zx';
+import {
+  RETRYABLE_PATTERNS,
+  NON_RETRYABLE_PATTERNS,
+  BILLING_ERROR_PATTERNS,
+  AUTH_ERROR_PATTERNS,
+  PERMISSION_ERROR_PATTERNS,
+  OUTPUT_VALIDATION_PATTERNS,
+  INVALID_REQUEST_PATTERNS,
+  REQUEST_TOO_LARGE_PATTERNS,
+  CONFIG_ERROR_PATTERNS,
+  EXECUTION_LIMIT_PATTERNS,
+  INVALID_TARGET_PATTERNS,
+} from './constants/error-patterns.js';
 import type {
   PentestErrorType,
   PentestErrorContext,
@@ -129,46 +142,6 @@ export function handlePromptError(
   };
 }
 
-// Patterns that indicate retryable errors
-const RETRYABLE_PATTERNS = [
-  // Network and connection errors
-  'network',
-  'connection',
-  'timeout',
-  'econnreset',
-  'enotfound',
-  'econnrefused',
-  // Rate limiting
-  'rate limit',
-  '429',
-  'too many requests',
-  // Server errors
-  'server error',
-  '5xx',
-  'internal server error',
-  'service unavailable',
-  'bad gateway',
-  // Claude API errors
-  'mcp server',
-  'model unavailable',
-  'service temporarily unavailable',
-  'api error',
-  'terminated',
-  // Max turns
-  'max turns',
-  'maximum turns',
-];
-
-// Patterns that indicate non-retryable errors (checked before default)
-const NON_RETRYABLE_PATTERNS = [
-  'authentication',
-  'invalid prompt',
-  'out of memory',
-  'permission denied',
-  'session limit reached',
-  'invalid api key',
-];
-
 // Conservative retry classification - unknown errors don't retry (fail-safe default)
 export function isRetryableError(error: Error): boolean {
   const message = error.message.toLowerCase();
@@ -205,115 +178,40 @@ export function getRetryDelay(error: Error, attempt: number): number {
  * - Retryable errors: Temporal retries with configured backoff
  * - Non-retryable errors: Temporal fails immediately
  */
+function matches_any(message: string, patterns: readonly string[]): boolean {
+  return patterns.some((p) => message.includes(p));
+}
+
 export function classifyErrorForTemporal(error: unknown): TemporalErrorClassification {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
 
-  // === BILLING ERRORS (Retryable with long backoff) ===
-  // Anthropic returns billing as 400 invalid_request_error
-  // Human can add credits OR wait for spending cap to reset (5-30 min backoff)
-  if (
-    message.includes('billing_error') ||
-    message.includes('credit balance is too low') ||
-    message.includes('insufficient credits') ||
-    message.includes('usage is blocked due to insufficient credits') ||
-    message.includes('please visit plans & billing') ||
-    message.includes('please visit plans and billing') ||
-    message.includes('usage limit reached') ||
-    message.includes('quota exceeded') ||
-    message.includes('daily rate limit') ||
-    message.includes('limit will reset') ||
-    // Claude Code spending cap patterns (returns short message instead of error)
-    message.includes('spending cap') ||
-    message.includes('spending limit') ||
-    message.includes('cap reached') ||
-    message.includes('budget exceeded') ||
-    message.includes('billing limit reached')
-  ) {
+  if (matches_any(message, BILLING_ERROR_PATTERNS)) {
     return { type: 'BillingError', retryable: true };
   }
-
-  // === PERMANENT ERRORS (Non-retryable) ===
-
-  // Authentication (401) - bad API key won't fix itself
-  if (
-    message.includes('authentication') ||
-    message.includes('api key') ||
-    message.includes('401') ||
-    message.includes('authentication_error')
-  ) {
+  if (matches_any(message, AUTH_ERROR_PATTERNS)) {
     return { type: 'AuthenticationError', retryable: false };
   }
-
-  // Permission (403) - access won't be granted
-  if (
-    message.includes('permission') ||
-    message.includes('forbidden') ||
-    message.includes('403')
-  ) {
+  if (matches_any(message, PERMISSION_ERROR_PATTERNS)) {
     return { type: 'PermissionError', retryable: false };
   }
-
-  // === OUTPUT VALIDATION ERRORS (Retryable) ===
-  // Agent didn't produce expected deliverables - retry may succeed
-  // IMPORTANT: Must come BEFORE generic 'validation' check below
-  if (
-    message.includes('failed output validation') ||
-    message.includes('output validation failed')
-  ) {
+  if (matches_any(message, OUTPUT_VALIDATION_PATTERNS)) {
     return { type: 'OutputValidationError', retryable: true };
   }
-
-  // Invalid Request (400) - malformed request is permanent
-  // Note: Checked AFTER billing and AFTER output validation
-  if (
-    message.includes('invalid_request_error') ||
-    message.includes('malformed') ||
-    message.includes('validation')
-  ) {
+  if (matches_any(message, INVALID_REQUEST_PATTERNS)) {
     return { type: 'InvalidRequestError', retryable: false };
   }
-
-  // Request Too Large (413) - won't fit no matter how many retries
-  if (
-    message.includes('request_too_large') ||
-    message.includes('too large') ||
-    message.includes('413')
-  ) {
+  if (matches_any(message, REQUEST_TOO_LARGE_PATTERNS)) {
     return { type: 'RequestTooLargeError', retryable: false };
   }
-
-  // Configuration errors - missing files need manual fix
-  if (
-    message.includes('enoent') ||
-    message.includes('no such file') ||
-    message.includes('cli not installed')
-  ) {
+  if (matches_any(message, CONFIG_ERROR_PATTERNS)) {
     return { type: 'ConfigurationError', retryable: false };
   }
-
-  // Execution limits - max turns/budget reached
-  if (
-    message.includes('max turns') ||
-    message.includes('budget') ||
-    message.includes('execution limit') ||
-    message.includes('error_max_turns') ||
-    message.includes('error_max_budget')
-  ) {
+  if (matches_any(message, EXECUTION_LIMIT_PATTERNS)) {
     return { type: 'ExecutionLimitError', retryable: false };
   }
-
-  // Invalid target URL - bad URL format won't fix itself
-  if (
-    message.includes('invalid url') ||
-    message.includes('invalid target') ||
-    message.includes('malformed url') ||
-    message.includes('invalid uri')
-  ) {
+  if (matches_any(message, INVALID_TARGET_PATTERNS)) {
     return { type: 'InvalidTargetError', retryable: false };
   }
 
-  // === TRANSIENT ERRORS (Retryable) ===
-  // Rate limits (429), server errors (5xx), network issues
-  // Let Temporal retry with configured backoff
   return { type: 'TransientError', retryable: true };
 }

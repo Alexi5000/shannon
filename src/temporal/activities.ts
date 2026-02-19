@@ -68,6 +68,9 @@ import {
   rollbackGitWorkspace,
   getGitCommitHash,
 } from '../utils/git-manager.js';
+import { build_session_metadata } from '../utils/session-metadata.js';
+import { is_billing_error } from '../utils/billing-detector.js';
+import { HEARTBEAT_INTERVAL_MS } from '../constants/timeouts.js';
 import { assembleFinalReport, injectModelIntoReport } from '../phases/reporting.js';
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
@@ -75,9 +78,6 @@ import type { WorkflowSummary } from '../audit/workflow-logger.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
-import type { SessionMetadata } from '../audit/utils.js';
-
-const HEARTBEAT_INTERVAL_MS = 2000; // Must be < heartbeatTimeout (10min production, 5min testing)
 
 /**
  * Input for all agent activities.
@@ -93,24 +93,20 @@ export interface ActivityInput {
   workflowId: string;
 }
 
-/**
- * Core activity implementation.
- *
- * Executes a single agent with:
- * 1. Heartbeat loop for worker liveness
- * 2. Config loading (if configPath provided)
- * 3. Audit session initialization
- * 4. Prompt loading
- * 5. Git checkpoint before execution
- * 6. Agent execution (single attempt)
- * 7. Output validation
- * 8. Git commit on success, rollback on failure
- * 9. Error classification for Temporal retry
- */
-async function runAgentActivity(
+interface AgentExecutionContext {
+  agentName: AgentName;
+  repoPath: string;
+  startTime: number;
+  attemptNumber: number;
+  sessionMetadata: ReturnType<typeof build_session_metadata>;
+  auditSession: AuditSession;
+  prompt: string;
+}
+
+async function setup_agent_execution(
   agentName: AgentName,
   input: ActivityInput
-): Promise<AgentMetrics> {
+): Promise<AgentExecutionContext> {
   const {
     webUrl,
     repoPath: inputRepoPath,
@@ -120,162 +116,160 @@ async function runAgentActivity(
     workflowId,
   } = input;
   const repoPath = inputRepoPath?.trim() || `repos/black-box-${workflowId}`;
+  await fs.ensureDir(repoPath);
 
-  const startTime = Date.now();
+  let distributedConfig: DistributedConfig | null = null;
+  if (configPath) {
+    try {
+      const config = await parseConfig(configPath);
+      distributedConfig = distributeConfig(config);
+    } catch (err) {
+      throw new Error(`Failed to load config ${configPath}: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
 
-  // Get attempt number from Temporal context (tracks retries automatically)
+  const sessionMetadata = build_session_metadata({
+    workflowId,
+    webUrl,
+    repoPath,
+    ...(outputPath && { outputPath }),
+  });
+  const auditSession = new AuditSession(sessionMetadata);
+  await auditSession.initialize();
+
+  const promptName = getPromptNameForAgent(agentName);
+  const prompt = await loadPrompt(
+    promptName,
+    { webUrl, repoPath },
+    distributedConfig,
+    pipelineTestingMode
+  );
+
   const attemptNumber = Context.current().info.attempt;
+  await createGitCheckpoint(repoPath, agentName, attemptNumber);
+  await auditSession.startAgent(agentName, prompt, attemptNumber);
 
-  // Heartbeat loop - signals worker is alive to Temporal server
+  return {
+    agentName,
+    repoPath,
+    startTime: Date.now(),
+    attemptNumber,
+    sessionMetadata,
+    auditSession,
+    prompt,
+  };
+}
+
+async function execute_agent_with_validation(ctx: AgentExecutionContext): Promise<ClaudePromptResult> {
+  const { agentName, repoPath, startTime, attemptNumber, sessionMetadata, auditSession, prompt } = ctx;
+  const result: ClaudePromptResult = await runClaudePrompt(
+    prompt,
+    repoPath,
+    '',
+    agentName,
+    agentName,
+    chalk.cyan,
+    sessionMetadata,
+    auditSession,
+    attemptNumber
+  );
+
+  if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0 && is_billing_error(result.result ?? '')) {
+    await rollbackGitWorkspace(repoPath, 'spending cap detected');
+    await auditSession.endAgent(agentName, {
+      attemptNumber,
+      duration_ms: result.duration,
+      cost_usd: 0,
+      success: false,
+      model: result.model,
+      error: `Spending cap likely reached: ${(result.result ?? '').slice(0, 100)}`,
+    });
+    throw new Error(`Spending cap likely reached: ${(result.result ?? '').slice(0, 100)}`);
+  }
+
+  if (!result.success) {
+    await rollbackGitWorkspace(repoPath, 'execution failure');
+    await auditSession.endAgent(agentName, {
+      attemptNumber,
+      duration_ms: result.duration,
+      cost_usd: result.cost || 0,
+      success: false,
+      model: result.model,
+      error: result.error || 'Execution failed',
+    });
+    if (result.errorType === 'AgentTimeoutError') {
+      throw ApplicationFailure.nonRetryable(
+        `Agent ${agentName} timed out: ${result.error ?? 'Execution exceeded timeout'}`,
+        'ExecutionLimitError',
+        [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
+      );
+    }
+    throw new Error(result.error || 'Agent execution failed');
+  }
+
+  const validationPassed = await validateAgentOutput(result, agentName, repoPath);
+  if (!validationPassed) {
+    await rollbackGitWorkspace(repoPath, 'validation failure');
+    await auditSession.endAgent(agentName, {
+      attemptNumber,
+      duration_ms: result.duration,
+      cost_usd: result.cost || 0,
+      success: false,
+      model: result.model,
+      error: 'Output validation failed',
+    });
+    if (attemptNumber >= MAX_OUTPUT_VALIDATION_RETRIES) {
+      throw ApplicationFailure.nonRetryable(
+        `Agent ${agentName} failed output validation after ${attemptNumber} attempts`,
+        'OutputValidationError',
+        [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
+      );
+    }
+    throw new Error(`Agent ${agentName} failed output validation`);
+  }
+
+  return result;
+}
+
+function handle_agent_result(ctx: AgentExecutionContext, result: ClaudePromptResult): AgentMetrics {
+  const { agentName, repoPath, startTime, attemptNumber, auditSession } = ctx;
+  return {
+    durationMs: Date.now() - startTime,
+    inputTokens: null,
+    outputTokens: null,
+    costUsd: result.cost ?? null,
+    numTurns: result.turns ?? null,
+    model: result.model,
+  };
+}
+
+async function runAgentActivity(
+  agentName: AgentName,
+  input: ActivityInput
+): Promise<AgentMetrics> {
+  const startTime = Date.now();
+  const attemptNumber = Context.current().info.attempt;
   const heartbeatInterval = setInterval(() => {
     const elapsed = Math.floor((Date.now() - startTime) / 1000);
     heartbeat({ agent: agentName, elapsedSeconds: elapsed, attempt: attemptNumber });
   }, HEARTBEAT_INTERVAL_MS);
 
+  const repoPath = input.repoPath?.trim() || `repos/black-box-${input.workflowId}`;
+
   try {
-    // Ensure workspace exists before any prompt execution / SDK subprocess spawn.
-    // Black-box UI runs may provide an auto-generated repo path that is not created yet.
-    await fs.ensureDir(repoPath);
-
-    // 1. Load config (if provided)
-    let distributedConfig: DistributedConfig | null = null;
-    if (configPath) {
-      try {
-        const config = await parseConfig(configPath);
-        distributedConfig = distributeConfig(config);
-      } catch (err) {
-        throw new Error(`Failed to load config ${configPath}: ${err instanceof Error ? err.message : String(err)}`);
-      }
-    }
-
-    // 2. Build session metadata for audit
-    const sessionMetadata: SessionMetadata = {
-      id: workflowId,
-      webUrl,
-      repoPath,
-      ...(outputPath && { outputPath }),
-    };
-
-    // 3. Initialize audit session (idempotent, safe across retries)
-    const auditSession = new AuditSession(sessionMetadata);
-    await auditSession.initialize();
-
-    // 4. Load prompt
-    const promptName = getPromptNameForAgent(agentName);
-    const prompt = await loadPrompt(
-      promptName,
-      { webUrl, repoPath },
-      distributedConfig,
-      pipelineTestingMode
-    );
-
-    // 5. Create git checkpoint before execution
-    await createGitCheckpoint(repoPath, agentName, attemptNumber);
-    await auditSession.startAgent(agentName, prompt, attemptNumber);
-
-    // 6. Execute agent (single attempt - Temporal handles retries)
-    const result: ClaudePromptResult = await runClaudePrompt(
-      prompt,
-      repoPath,
-      '', // context
-      agentName, // description
-      agentName,
-      chalk.cyan,
-      sessionMetadata,
-      auditSession,
-      attemptNumber
-    );
-
-    // 6.5. Sanity check: Detect spending cap that slipped through all detection layers
-    // Defense-in-depth: A successful agent execution should never have ≤2 turns with $0 cost
-    if (result.success && (result.turns ?? 0) <= 2 && (result.cost || 0) === 0) {
-      const resultText = result.result || '';
-      const looksLikeBillingError = /spending|cap|limit|budget|resets/i.test(resultText);
-
-      if (looksLikeBillingError) {
-        await rollbackGitWorkspace(repoPath, 'spending cap detected');
-        await auditSession.endAgent(agentName, {
-          attemptNumber,
-          duration_ms: result.duration,
-          cost_usd: 0,
-          success: false,
-          model: result.model,
-          error: `Spending cap likely reached: ${resultText.slice(0, 100)}`,
-        });
-        // Throw as billing error so Temporal retries with long backoff
-        throw new Error(`Spending cap likely reached: ${resultText.slice(0, 100)}`);
-      }
-    }
-
-    // 7. Handle execution failure
-    if (!result.success) {
-      await rollbackGitWorkspace(repoPath, 'execution failure');
-      await auditSession.endAgent(agentName, {
-        attemptNumber,
-        duration_ms: result.duration,
-        cost_usd: result.cost || 0,
-        success: false,
-        model: result.model,
-        error: result.error || 'Execution failed',
-      });
-
-      if (result.errorType === 'AgentTimeoutError') {
-        throw ApplicationFailure.nonRetryable(
-          `Agent ${agentName} timed out: ${result.error || 'Execution exceeded timeout'}`,
-          'ExecutionLimitError',
-          [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
-        );
-      }
-
-      throw new Error(result.error || 'Agent execution failed');
-    }
-
-    // 8. Validate output
-    const validationPassed = await validateAgentOutput(result, agentName, repoPath);
-    if (!validationPassed) {
-      await rollbackGitWorkspace(repoPath, 'validation failure');
-      await auditSession.endAgent(agentName, {
-        attemptNumber,
-        duration_ms: result.duration,
-        cost_usd: result.cost || 0,
-        success: false,
-        model: result.model,
-        error: 'Output validation failed',
-      });
-
-      // Limit output validation retries (unlikely to self-heal)
-      if (attemptNumber >= MAX_OUTPUT_VALIDATION_RETRIES) {
-        throw ApplicationFailure.nonRetryable(
-          `Agent ${agentName} failed output validation after ${attemptNumber} attempts`,
-          'OutputValidationError',
-          [{ agentName, attemptNumber, elapsed: Date.now() - startTime }]
-        );
-      }
-      // Let Temporal retry (will be classified as OutputValidationError)
-      throw new Error(`Agent ${agentName} failed output validation`);
-    }
-
-    // 9. Success - commit and log
-    const commitHash = await getGitCommitHash(repoPath);
-    await auditSession.endAgent(agentName, {
-      attemptNumber,
+    const ctx = await setup_agent_execution(agentName, input);
+    const result = await execute_agent_with_validation(ctx);
+    const commitHash = await getGitCommitHash(ctx.repoPath);
+    await ctx.auditSession.endAgent(ctx.agentName, {
+      attemptNumber: ctx.attemptNumber,
       duration_ms: result.duration,
       cost_usd: result.cost || 0,
       success: true,
       model: result.model,
       ...(commitHash && { checkpoint: commitHash }),
     });
-    await commitGitSuccess(repoPath, agentName);
-
-    // 10. Return metrics
-    return {
-      durationMs: Date.now() - startTime,
-      inputTokens: null, // Not currently exposed by SDK wrapper
-      outputTokens: null,
-      costUsd: result.cost ?? null,
-      numTurns: result.turns ?? null,
-      model: result.model,
-    };
+    await commitGitSuccess(ctx.repoPath, ctx.agentName);
+    return handle_agent_result(ctx, result);
   } catch (error) {
     // Rollback git workspace before Temporal retry to ensure clean state
     try {
@@ -514,13 +508,13 @@ export async function logPhaseTransition(
   event: 'start' | 'complete'
 ): Promise<void> {
   const { webUrl, repoPath, outputPath, workflowId } = input;
-
-  const sessionMetadata: SessionMetadata = {
-    id: workflowId,
+  const repo_path = repoPath?.trim() || `repos/black-box-${workflowId}`;
+  const sessionMetadata = build_session_metadata({
+    workflowId,
     webUrl,
-    repoPath,
+    repoPath: repo_path,
     ...(outputPath && { outputPath }),
-  };
+  });
 
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize();
@@ -541,13 +535,13 @@ export async function logWorkflowComplete(
   summary: WorkflowSummary
 ): Promise<void> {
   const { webUrl, repoPath, outputPath, workflowId } = input;
-
-  const sessionMetadata: SessionMetadata = {
-    id: workflowId,
+  const repo_path = repoPath?.trim() || `repos/black-box-${workflowId}`;
+  const sessionMetadata = build_session_metadata({
+    workflowId,
     webUrl,
-    repoPath,
+    repoPath: repo_path,
     ...(outputPath && { outputPath }),
-  };
+  });
 
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize();

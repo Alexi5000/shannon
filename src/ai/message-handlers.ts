@@ -7,6 +7,7 @@
 // Pure functions for processing SDK message types
 
 import { PentestError } from '../error-handling.js';
+import { BILLING_PATTERNS } from '../constants/billing-patterns.js';
 import { filterJsonToolCalls } from '../utils/output-formatter.js';
 import { formatTimestamp } from '../utils/formatting.js';
 import chalk from 'chalk';
@@ -55,22 +56,7 @@ export function detectApiError(content: string): ApiErrorDetection {
   }
 
   const lowerContent = content.toLowerCase();
-
-  // === BILLING/SPENDING CAP ERRORS (Retryable with long backoff) ===
-  // When Claude Code hits its spending cap, it returns a short message like
-  // "Spending cap reached resets 8am" instead of throwing an error.
-  // These should retry with 5-30 min backoff so workflows can recover when cap resets.
-  const BILLING_PATTERNS = [
-    'spending cap',
-    'spending limit',
-    'cap reached',
-    'budget exceeded',
-    'usage limit',
-  ];
-
-  const isBillingError = BILLING_PATTERNS.some((pattern) =>
-    lowerContent.includes(pattern)
-  );
+  const isBillingError = BILLING_PATTERNS.some((p) => lowerContent.includes(p));
 
   if (isBillingError) {
     return {

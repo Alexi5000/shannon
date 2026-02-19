@@ -16,10 +16,7 @@ import { WorkflowLogger, type AgentLogDetails, type WorkflowSummary } from './wo
 import { MetricsTracker } from './metrics-tracker.js';
 import { initializeAuditStructure, type SessionMetadata } from './utils.js';
 import { formatTimestamp } from '../utils/formatting.js';
-import { SessionMutex } from '../utils/concurrency.js';
-
-// Global mutex instance
-const sessionMutex = new SessionMutex();
+import { with_mutex } from '../utils/mutex-helpers.js';
 
 interface AgentEndResult {
   attemptNumber: number;
@@ -194,16 +191,10 @@ export class AuditSession {
     await this.workflowLogger.logAgent(agentName, 'end', agentLogDetails);
 
     // Mutex-protected update to session.json
-    const unlock = await sessionMutex.lock(this.sessionId);
-    try {
-      // Reload inside mutex to prevent lost updates during parallel exploitation phase
+    await with_mutex(this.sessionId, async () => {
       await this.metricsTracker.reload();
-
-      // Update metrics
       await this.metricsTracker.endAgent(agentName, result);
-    } finally {
-      unlock();
-    }
+    });
   }
 
   /**
@@ -212,13 +203,10 @@ export class AuditSession {
   async updateSessionStatus(status: 'in-progress' | 'completed' | 'failed'): Promise<void> {
     await this.ensureInitialized();
 
-    const unlock = await sessionMutex.lock(this.sessionId);
-    try {
+    await with_mutex(this.sessionId, async () => {
       await this.metricsTracker.reload();
       await this.metricsTracker.updateSessionStatus(status);
-    } finally {
-      unlock();
-    }
+    });
   }
 
   /**

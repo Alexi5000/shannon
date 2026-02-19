@@ -4,16 +4,17 @@
 // it under the terms of the GNU Affero General Public License version 3
 // as published by the Free Software Foundation.
 
-import { $, fs, path } from 'zx';
+import { fs, path } from 'zx';
 import chalk from 'chalk';
 import { Timer } from '../utils/metrics.js';
 import { formatDuration } from '../utils/formatting.js';
-import { handleToolError, PentestError } from '../error-handling.js';
+import { PentestError } from '../error-handling.js';
 import { AGENTS } from '../session-manager.js';
 import { runClaudePromptWithRetry } from '../ai/claude-executor.js';
 import { loadPrompt } from '../prompts/prompt-manager.js';
 import type { ToolAvailability } from '../tool-checker.js';
 import type { DistributedConfig } from '../types/config.js';
+import { run_terminal_scan, type ToolName, type TerminalScanResult } from '../tools/tool-executor.js';
 
 interface AgentResult {
   success: boolean;
@@ -21,18 +22,6 @@ interface AgentResult {
   cost?: number | undefined;
   error?: string | undefined;
   retryable?: boolean | undefined;
-}
-
-type ToolName = 'nmap' | 'subfinder' | 'whatweb' | 'schemathesis';
-type ToolStatus = 'success' | 'skipped' | 'error';
-
-interface TerminalScanResult {
-  tool: ToolName;
-  output: string;
-  status: ToolStatus;
-  duration: number;
-  success?: boolean;
-  error?: Error;
 }
 
 interface PromptVariables {
@@ -61,81 +50,6 @@ interface Wave2Results {
 interface PreReconResult {
   duration: number;
   report: string;
-}
-
-// Runs external security tools (nmap, whatweb, etc). Schemathesis requires schemas from code analysis.
-async function runTerminalScan(tool: ToolName, target: string, sourceDir: string | null = null): Promise<TerminalScanResult> {
-  const timer = new Timer(`command-${tool}`);
-  try {
-    let result;
-    switch (tool) {
-      case 'nmap': {
-        console.log(chalk.blue(`    🔍 Running ${tool} scan...`));
-        const nmapHostname = new URL(target).hostname;
-        result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`nmap -sV -sC ${nmapHostname}`;
-        const duration = timer.stop();
-        console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(duration)}`));
-        return { tool: 'nmap', output: result.stdout, status: 'success', duration };
-      }
-      case 'subfinder': {
-        console.log(chalk.blue(`    🔍 Running ${tool} scan...`));
-        const hostname = new URL(target).hostname;
-        result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`subfinder -d ${hostname}`;
-        const subfinderDuration = timer.stop();
-        console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(subfinderDuration)}`));
-        return { tool: 'subfinder', output: result.stdout, status: 'success', duration: subfinderDuration };
-      }
-      case 'whatweb': {
-        console.log(chalk.blue(`    🔍 Running ${tool} scan...`));
-        const command = `whatweb --open-timeout 30 --read-timeout 60 ${target}`;
-        console.log(chalk.gray(`    Command: ${command}`));
-        result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`whatweb --open-timeout 30 --read-timeout 60 ${target}`;
-        const whatwebDuration = timer.stop();
-        console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(whatwebDuration)}`));
-        return { tool: 'whatweb', output: result.stdout, status: 'success', duration: whatwebDuration };
-      }
-      case 'schemathesis': {
-        // Schemathesis depends on code analysis output - skip if no schemas found
-        const schemasDir = path.join(sourceDir || '.', 'outputs', 'schemas');
-        if (await fs.pathExists(schemasDir)) {
-          const schemaFiles = await fs.readdir(schemasDir) as string[];
-          const apiSchemas = schemaFiles.filter((f: string) => f.endsWith('.json') || f.endsWith('.yml') || f.endsWith('.yaml'));
-          if (apiSchemas.length > 0) {
-            console.log(chalk.blue(`    🔍 Running ${tool} scan...`));
-            const allResults: string[] = [];
-
-            // Run schemathesis on each schema file
-            for (const schemaFile of apiSchemas) {
-              const schemaPath = path.join(schemasDir, schemaFile);
-              try {
-                result = await $({ silent: true, stdio: ['ignore', 'pipe', 'ignore'] })`schemathesis run ${schemaPath} -u ${target} --max-failures=5`;
-                allResults.push(`Schema: ${schemaFile}\n${result.stdout}`);
-              } catch (schemaError) {
-                const err = schemaError as { stdout?: string; message?: string };
-                allResults.push(`Schema: ${schemaFile}\nError: ${err.stdout || err.message}`);
-              }
-            }
-
-            const schemaDuration = timer.stop();
-            console.log(chalk.green(`    ✅ ${tool} completed in ${formatDuration(schemaDuration)}`));
-            return { tool: 'schemathesis', output: allResults.join('\n\n'), status: 'success', duration: schemaDuration };
-          } else {
-            console.log(chalk.gray(`    ⏭️ ${tool} - no API schemas found`));
-            return { tool: 'schemathesis', output: 'No API schemas found', status: 'skipped', duration: timer.stop() };
-          }
-        } else {
-          console.log(chalk.gray(`    ⏭️ ${tool} - schemas directory not found`));
-          return { tool: 'schemathesis', output: 'Schemas directory not found', status: 'skipped', duration: timer.stop() };
-        }
-      }
-      default:
-        throw new Error(`Unknown tool: ${tool}`);
-    }
-  } catch (error) {
-    const duration = timer.stop();
-    console.log(chalk.red(`    ❌ ${tool} failed in ${formatDuration(duration)}`));
-    return handleToolError(tool, error as Error & { code?: string }) as TerminalScanResult;
-  }
 }
 
 // Wave 1: Initial footprinting + authentication
@@ -178,9 +92,9 @@ async function runPreReconWave1(
     };
   } else {
     operations.push(
-      runTerminalScan('nmap', webUrl),
-      runTerminalScan('subfinder', webUrl),
-      runTerminalScan('whatweb', webUrl),
+      run_terminal_scan('nmap', webUrl),
+      run_terminal_scan('subfinder', webUrl),
+      run_terminal_scan('whatweb', webUrl),
       runClaudePromptWithRetry(
         await loadPrompt('pre-recon-code', variables, null, pipelineTestingMode),
         sourceDir,
@@ -229,7 +143,7 @@ async function runPreReconWave2(
   // Parallel additional scans (only run if tools are available)
 
   if (toolAvailability.schemathesis) {
-    operations.push(runTerminalScan('schemathesis', webUrl, sourceDir));
+    operations.push(run_terminal_scan('schemathesis', webUrl, sourceDir));
   }
 
   // If no tools are available, return early
