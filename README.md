@@ -80,6 +80,16 @@ docker compose run shannon scan \
 
 Shannon generates a comprehensive penetration testing report in the `reports/` directory, including proven exploits with reproducible Proof-of-Concepts, severity ratings, and remediation recommendations.
 
+## Ports & Molten Integration
+
+| Port | Service |
+|------|---------|
+| 4005 | Shannon HTTP API and Web UI |
+| 4006 | Shannon WebSocket (real-time progress) |
+| 8233 | Temporal Dev UI (workflow debugging) |
+
+When running in the TechTide ecosystem, set `MOLTEN_MEMORY_API_URL=http://localhost:18789/api/memories` and `MOLTEN_GATEWAY_URL=http://localhost:18789` in `.env` so findings sync to Molten's security namespace.
+
 ## Technology Stack
 
 | Category | Technology |

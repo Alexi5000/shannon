@@ -5,6 +5,7 @@
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
 import { cors } from 'hono/cors';
+import { WebSocket } from 'ws';
 import { temporal } from './temporal_bridge.js';
 import { startWebSocketServer } from './ws_server.js';
 import * as fs from 'fs';
@@ -135,6 +136,45 @@ app.get('/health', async (c) => {
       error: error instanceof Error ? error.message : 'Unknown error'
     }, 503);
   }
+});
+
+// WebSocket server health (reachability of port 4006)
+app.get('/health/ws', async (c) => {
+  const wsPort = parseInt(process.env.SHANNON_WS_PORT || '4006', 10);
+  const wsUrl = `ws://127.0.0.1:${wsPort}`;
+
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      try { client?.close(); } catch { /* ignore */ }
+      resolve(c.json({ status: 'unreachable', ws: wsUrl }, 503));
+    }, 3000);
+
+    let client: WebSocket | null = null;
+    try {
+      client = new WebSocket(wsUrl);
+      client.on('open', () => {
+        client!.send(JSON.stringify({ type: 'ping' }));
+      });
+      client.on('message', (data: Buffer) => {
+        try {
+          const msg = JSON.parse(data.toString());
+          if (msg.type === 'pong') {
+            clearTimeout(timeout);
+            try { client?.close(); } catch { /* ignore */ }
+            resolve(c.json({ status: 'ok', ws: 'reachable' }));
+          }
+        } catch { /* ignore */ }
+      });
+      client.on('error', () => {
+        clearTimeout(timeout);
+        try { client?.close(); } catch { /* ignore */ }
+        resolve(c.json({ status: 'unreachable', ws: wsUrl }, 503));
+      });
+    } catch (err) {
+      clearTimeout(timeout);
+      resolve(c.json({ status: 'error', error: err instanceof Error ? err.message : String(err) }, 503));
+    }
+  });
 });
 
 // Get current service status
