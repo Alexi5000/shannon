@@ -23,6 +23,38 @@
       "expires_at": "2027-12-31T23:59:59.000Z",
       "scope": "staging",
       "notes": "TechTide company website - authorized for security testing"
+    },
+    {
+      "url": "http://localhost:4001",
+      "authorized_by": "security-team",
+      "authorization_token": "shannon-internal",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "internal",
+      "notes": "DevENV Kanban"
+    },
+    {
+      "url": "http://localhost:4002",
+      "authorized_by": "security-team",
+      "authorization_token": "shannon-internal",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "internal",
+      "notes": "OrcaFlow"
+    },
+    {
+      "url": "http://localhost:4003",
+      "authorized_by": "security-team",
+      "authorization_token": "shannon-internal",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "internal",
+      "notes": "DevENV ORCA"
+    },
+    {
+      "url": "http://localhost:18790",
+      "authorized_by": "security-team",
+      "authorization_token": "shannon-internal",
+      "expires_at": "2027-12-31T23:59:59.000Z",
+      "scope": "internal",
+      "notes": "Molten Gateway"
     }
   ],
   "emergency_stop_enabled": true,

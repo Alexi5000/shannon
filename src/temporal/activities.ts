@@ -18,6 +18,7 @@
  * - Non-retryable: AuthenticationError, PermissionError, ConfigurationError, etc.
  */
 
+import path from 'path';
 import { heartbeat, ApplicationFailure, Context } from '@temporalio/activity';
 import chalk from 'chalk';
 import { fs } from 'zx';
@@ -75,6 +76,7 @@ import { assembleFinalReport, injectModelIntoReport } from '../phases/reporting.
 import { getPromptNameForAgent } from '../types/agents.js';
 import { AuditSession } from '../audit/index.js';
 import type { WorkflowSummary } from '../audit/workflow-logger.js';
+import { create_molten_memory_bridge } from '../integrations/molten-memory-bridge.js';
 import type { AgentName } from '../types/agents.js';
 import type { AgentMetrics } from './shared.js';
 import type { DistributedConfig } from '../types/config.js';
@@ -529,6 +531,7 @@ export async function logPhaseTransition(
 /**
  * Log workflow completion with full summary to the unified workflow log.
  * Called at the end of the workflow to write a summary breakdown.
+ * Pushes summary and findings to Molten memory (security namespace) when configured.
  */
 export async function logWorkflowComplete(
   input: ActivityInput,
@@ -546,4 +549,21 @@ export async function logWorkflowComplete(
   const auditSession = new AuditSession(sessionMetadata);
   await auditSession.initialize();
   await auditSession.logWorkflowComplete(summary);
+
+  const report_path = path.join(repo_path, 'deliverables', 'comprehensive_security_assessment_report.md');
+  try {
+    const bridge = create_molten_memory_bridge();
+    await bridge.push_workflow_results(
+      workflowId,
+      webUrl ?? '',
+      repo_path ?? undefined,
+      summary.status,
+      summary.totalDurationMs,
+      summary.totalCostUsd ?? 0,
+      summary.completedAgents?.length ?? 0,
+      report_path
+    );
+  } catch (err) {
+    console.error(chalk.yellow('[Shannon] Molten memory push failed (non-fatal):'), err);
+  }
 }
