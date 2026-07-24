@@ -89,16 +89,25 @@ app.use('/*', serveStatic({ root: './public' }));
 // Health check endpoint for TechTide ecosystem
 app.get('/health', async (c) => {
   const isTemporalConnected = temporal.isConnected();
-  
+
+  // Wrap Temporal operations with a hard timeout so /health never hangs
+  const with_timeout = <T>(promise: Promise<T>, ms: number): Promise<T> =>
+    Promise.race([
+      promise,
+      new Promise<T>((_, reject) =>
+        setTimeout(() => reject(new Error(`Temporal health check timed out after ${ms}ms`)), ms)
+      ),
+    ]);
+
   try {
-    // Try to connect if not already connected
+    // Try to connect if not already connected (with timeout)
     if (!isTemporalConnected) {
-      await temporal.connect();
+      await with_timeout(temporal.connect(), 2500);
     }
 
-    // Get active workflow count
-    const workflows = await temporal.listWorkflows(100);
-    const activeWorkflows = workflows.filter(w => w.status === 'RUNNING').length;
+    // Get active workflow count (with timeout)
+    const workflows = await with_timeout(temporal.listWorkflows(100), 2500);
+    const activeWorkflows = workflows.filter((w: { status: string }) => w.status === 'RUNNING').length;
     
     // Get last pentest info
     const lastPentest = workflows.length > 0 ? workflows[0] : null;
@@ -128,13 +137,15 @@ app.get('/health', async (c) => {
       lastPentest: lastPentestInfo
     });
   } catch (error) {
+    // Return 200 so upstream health checkers (Molten) see the service as UP/reachable.
+    // The status field conveys the degraded state without triggering "service down" logic.
     return c.json({
       status: 'degraded',
       service: 'shannon',
       version: '1.0.0',
       temporal: 'disconnected',
       error: error instanceof Error ? error.message : 'Unknown error'
-    }, 503);
+    });
   }
 });
 
