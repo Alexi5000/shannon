@@ -93,8 +93,9 @@ ws.send(JSON.stringify({
 ## Integration with TechTide
 
 The Shannon UI is independent but connected:
-- TechTide Dashboard (port 3000) links to Shannon UI and monitors health
-- Molten Gateway (port 18789) includes Shannon in agent registry
+- TechTide Dashboard (port 3080, legacy 3000) links to Shannon UI and monitors health
+- Molten Bun Gateway (port 18790) includes Shannon in agent registry and memory API
+- Clawdbot/OpenClaw (port 18789) is chat/runtime only
 - Marc's Security Auditor delegates active pentesting to Shannon
 - Results feed into Molten memory system (security namespace)
 

@@ -88,7 +88,7 @@ Shannon generates a comprehensive penetration testing report in the `reports/` d
 | 4006 | Shannon WebSocket (real-time progress) |
 | 8233 | Temporal Dev UI (workflow debugging) |
 
-When running in the TechTide ecosystem, set `MOLTEN_MEMORY_API_URL=http://localhost:18790/api/memories` in `.env` so workflow completion and findings sync to Molten's security namespace (Bun gateway on 18790). Optionally set `MOLTEN_GATEWAY_URL=http://localhost:18789` for Clawdbot gateway references.
+When running in the TechTide ecosystem, set `MOLTEN_MEMORY_API_URL=http://localhost:18790/api/memories` and `MOLTEN_GATEWAY_URL=http://localhost:18790` in `.env` so workflow completion and findings sync to Molten's security namespace. Use `CLAWDBOT_GATEWAY_URL=http://localhost:18789` only for Clawdbot chat/runtime references.
 
 ## Technology Stack
 
