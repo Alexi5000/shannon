@@ -3,8 +3,9 @@
   "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "build": "tsc",
+    "build": "npm run build:mcp && npm run build:root",
     "build:mcp": "npm --prefix mcp-server run build",
+    "build:root": "tsc",
     "build:ui": "bun run --cwd ui build",
     "test": "bun test tests",
     "audit:dependencies": "npm audit --audit-level=high --omit=optional",

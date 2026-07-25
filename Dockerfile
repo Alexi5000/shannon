@@ -120,8 +120,8 @@ RUN npm ci && \
 # Copy application source code
 COPY . .
 
-# Build TypeScript (mcp-server first, then main project)
-RUN cd mcp-server && npm run build && cd .. && npm run build
+# Build TypeScript (the root build generates MCP declarations first)
+RUN npm run build
 
 # Remove devDependencies after build to reduce image size
 RUN npm prune --production && \
