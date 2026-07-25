@@ -228,7 +228,7 @@ start http://localhost:4005
 cd c:\TechTide\Apps\shannon
 
 # Add API key to .env first
-# ANTHROPIC_API_KEY=sk-ant-api03-YOUR_KEY_HERE
+# ANTHROPIC_API_KEY=<your-anthropic-api-key>
 
 # Start pentest (CLI)
 ./shannon start URL=http://localhost:8080/app REPO=c:\path\to\repo
@@ -268,7 +268,7 @@ result = auditor.invoke({
 
 1. **Add your Anthropic API key** to `shannon/.env`:
    ```bash
-   ANTHROPIC_API_KEY=sk-ant-api03-YOUR_KEY_HERE
+   ANTHROPIC_API_KEY=<your-anthropic-api-key>
    ```
 
 2. **Test Shannon UI locally**:

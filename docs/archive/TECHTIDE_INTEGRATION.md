@@ -444,7 +444,7 @@ TEMPORAL_ADDRESS=localhost:7233
 
 Already created from `.env.example`. Add your API key:
 ```bash
-ANTHROPIC_API_KEY=sk-ant-api03-YOUR_KEY_HERE
+ANTHROPIC_API_KEY=<your-anthropic-api-key>
 CLAUDE_CODE_MAX_OUTPUT_TOKENS=64000
 ```
 
