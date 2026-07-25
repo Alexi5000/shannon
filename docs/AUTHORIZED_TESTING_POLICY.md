@@ -83,7 +83,7 @@ All authorized targets must be registered in `configs/target-allowlist.json`:
 - `authorized_by`: Person/team granting authorization
 - `authorization_token`: Unique token for this authorization
 - `expires_at`: ISO 8601 expiration timestamp
-- `scope`: One of: `dev`, `staging`, `qa`, `sandbox`
+- `scope`: One of: `dev`, `staging`, `qa`, `sandbox`, `internal`
 
 ### Authorization Token Usage
 
@@ -213,10 +213,11 @@ curl -X POST http://localhost:4005/api/pentest/start \
 ### Local Development Testing
 
 ```bash
-# Local targets auto-authorized
+# Every entry with a configured token requires an exact token match
 curl -X POST http://localhost:4005/api/pentest/start \
   -d '{
     "url": "http://localhost:3000",
+    "authorizationToken": "shannon-dev-local",
     "mode": "black_box"
   }'
 ```

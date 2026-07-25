@@ -25,9 +25,9 @@ export class ShannonWebSocketServer {
   private readonly pollErrorBackoff: number = 10000; // 10 seconds after query errors
   private readonly maxConsecutiveErrors: number = 5; // Trigger reconnection after N consecutive errors
 
-  constructor(port: number = 4006) {
+  constructor(port: number = 4006, host: string = '127.0.0.1') {
     this.port = port;
-    this.wss = new WebSocketServer({ port });
+    this.wss = new WebSocketServer({ port, host });
     this.setupWebSocketServer();
   }
 
@@ -351,9 +351,9 @@ export class ShannonWebSocketServer {
 // Export singleton
 let wsServer: ShannonWebSocketServer | null = null;
 
-export function startWebSocketServer(port?: number): ShannonWebSocketServer {
+export function startWebSocketServer(port?: number, host?: string): ShannonWebSocketServer {
   if (!wsServer) {
-    wsServer = new ShannonWebSocketServer(port);
+    wsServer = new ShannonWebSocketServer(port, host);
   }
   return wsServer;
 }

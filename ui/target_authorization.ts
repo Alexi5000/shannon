@@ -1,20 +1,17 @@
-// file: src/authorization/target-allowlist.ts
-// description: Target allowlist and authorization controls for Shannon red-team testing
-// reference: src/temporal/activities.ts, src/cli/input-validator.ts
+// file: shannon/ui/target_authorization.ts
+// description: Fail-closed target authorization for the standalone Shannon UI image
+// reference: configs/target-allowlist.json, server.ts
 
-import { fs } from 'zx';
-import path from 'node:path';
-import chalk from 'chalk';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 
 export type TargetScope = 'staging' | 'dev' | 'qa' | 'sandbox' | 'internal';
 
 export interface TargetAuthorization {
   url: string;
-  authorized_by: string;
   authorization_token: string;
   expires_at: string;
   scope: TargetScope;
-  notes?: string;
 }
 
 export interface AllowlistConfig {
@@ -30,62 +27,47 @@ export interface AuthorizationResult {
   scope?: TargetScope;
 }
 
-const DEFAULT_ALLOWLIST_PATH = path.join(process.cwd(), 'configs', 'target-allowlist.json');
+const STRICT_DEFAULT: AllowlistConfig = {
+  authorized_targets: [],
+  emergency_stop_enabled: true,
+  require_explicit_consent: true,
+  production_block_enabled: true,
+};
 
-/**
- * Load target allowlist from config
- */
-export async function load_allowlist(config_path?: string): Promise<AllowlistConfig> {
-  const allowlist_path = config_path ?? DEFAULT_ALLOWLIST_PATH;
-  
+export function load_allowlist(): AllowlistConfig {
+  const configured_path = process.env.SHANNON_ALLOWLIST_PATH;
+  const candidates = [
+    configured_path,
+    path.resolve(process.cwd(), 'configs', 'target-allowlist.json'),
+    path.resolve(process.cwd(), '..', 'configs', 'target-allowlist.json'),
+  ].filter((candidate): candidate is string => Boolean(candidate));
+
+  const allowlist_path = candidates.find(candidate => fs.existsSync(candidate));
+  if (!allowlist_path) {
+    return { ...STRICT_DEFAULT, authorized_targets: [] };
+  }
+
   try {
-    if (!await fs.pathExists(allowlist_path)) {
-      // Return default strict config
-      return {
-        authorized_targets: [],
-        emergency_stop_enabled: true,
-        require_explicit_consent: true,
-        production_block_enabled: true
-      };
-    }
-    
-    const content = await fs.readFile(allowlist_path, 'utf8');
-    const config = JSON.parse(content) as AllowlistConfig;
-    
-    // Validate required fields
-    if (!config.authorized_targets) {
-      config.authorized_targets = [];
-    }
-    
-    // Apply safe defaults
-    if (config.emergency_stop_enabled === undefined) config.emergency_stop_enabled = true;
-    if (config.require_explicit_consent === undefined) config.require_explicit_consent = true;
-    if (config.production_block_enabled === undefined) config.production_block_enabled = true;
-    
-    return config;
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    console.error(chalk.red(`Failed to load allowlist: ${errMsg}`));
-    
-    // Return strict default on error
+    const parsed = JSON.parse(fs.readFileSync(allowlist_path, 'utf8')) as Partial<AllowlistConfig>;
     return {
-      authorized_targets: [],
-      emergency_stop_enabled: true,
-      require_explicit_consent: true,
-      production_block_enabled: true
+      authorized_targets: Array.isArray(parsed.authorized_targets)
+        ? parsed.authorized_targets
+        : [],
+      emergency_stop_enabled: parsed.emergency_stop_enabled !== false,
+      require_explicit_consent: parsed.require_explicit_consent !== false,
+      production_block_enabled: parsed.production_block_enabled !== false,
     };
+  } catch (error) {
+    console.error('[AUTH] Failed to load allowlist; denying targets:', error);
+    return { ...STRICT_DEFAULT, authorized_targets: [] };
   }
 }
 
-/**
- * Check if target is authorized for testing
- */
-export async function is_target_authorized(
+export function is_target_authorized(
   target_url: string,
-  authorization_token?: string
-): Promise<AuthorizationResult> {
-  const allowlist = await load_allowlist();
-  return authorize_target(target_url, authorization_token, allowlist);
+  authorization_token?: string,
+): AuthorizationResult {
+  return authorize_target(target_url, authorization_token, load_allowlist());
 }
 
 export function authorize_target(
@@ -135,10 +117,7 @@ export function authorize_target(
       continue;
     }
 
-    return {
-      authorized: true,
-      scope: authorization.scope,
-    };
+    return { authorized: true, scope: authorization.scope };
   }
 
   if (matched_expired) {
@@ -150,7 +129,6 @@ export function authorize_target(
   if (allowlist.require_explicit_consent || matched_url) {
     return { authorized: false, reason: 'Target not in authorized allowlist' };
   }
-
   return { authorized: true, scope: 'dev' };
 }
 
@@ -173,7 +151,6 @@ export function target_matches_authorization(target: URL, authorization_url: str
   ) {
     return false;
   }
-
   if (authorization.port && authorization.port !== target.port) {
     return false;
   }
@@ -185,12 +162,11 @@ export function target_matches_authorization(target: URL, authorization_url: str
     || target_path.startsWith(`${authorization_path}/`);
 }
 
-export function is_production_target(target: URL): boolean {
+function is_production_target(target: URL): boolean {
   const hostname = target.hostname.toLowerCase();
   if (is_loopback_hostname(hostname)) {
     return false;
   }
-
   const non_production_labels = new Set([
     'staging',
     'stage',
@@ -237,39 +213,4 @@ function is_loopback_hostname(hostname: string): boolean {
   return octets.length === 4
     && octets.every(octet => Number.isInteger(octet) && octet >= 0 && octet <= 255)
     && octets[0] === 127;
-}
-
-/**
- * Create example allowlist configuration
- */
-export async function create_example_allowlist(output_path?: string): Promise<void> {
-  const example: AllowlistConfig = {
-    authorized_targets: [
-      {
-        url: 'http://localhost',
-        authorized_by: 'security-team',
-        authorization_token: 'shannon-local-dev-token',
-        expires_at: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
-        scope: 'dev',
-        notes: 'Local development and testing'
-      },
-      {
-        url: 'https://staging.example.com',
-        authorized_by: 'security-lead',
-        authorization_token: 'shannon-staging-2026',
-        expires_at: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000).toISOString(),
-        scope: 'staging',
-        notes: 'Quarterly staging pentest - expires in 90 days'
-      }
-    ],
-    emergency_stop_enabled: true,
-    require_explicit_consent: true,
-    production_block_enabled: true
-  };
-  
-  const path_to_write = output_path ?? DEFAULT_ALLOWLIST_PATH;
-  await fs.ensureDir(path.dirname(path_to_write));
-  await fs.writeFile(path_to_write, JSON.stringify(example, null, 2));
-  
-  console.log(chalk.green(`✅ Example allowlist created at ${path_to_write}`));
 }

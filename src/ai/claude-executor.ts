@@ -223,8 +223,13 @@ export async function runClaudePrompt(
   console.log(chalk.gray(`    Node.js binary: ${process.execPath}`));
   console.log(chalk.gray(`    Node directory: ${nodeDir}`));
   console.log(chalk.gray(`    PATH (first 200 chars): ${processEnv.PATH?.substring(0, 200)}`));
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  console.log(chalk.gray(`    ANTHROPIC_API_KEY in env: ${apiKey ? 'YES (' + apiKey.substring(0, 20) + '...)' : 'NO'}`));
+  console.log(
+    chalk.gray(
+      `    Anthropic credentials in environment: ${
+        process.env.ANTHROPIC_API_KEY ? 'configured' : 'not configured'
+      }`
+    )
+  );
   
   const options = {
     model: 'claude-sonnet-4-5-20250929',

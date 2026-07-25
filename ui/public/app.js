@@ -20,9 +20,11 @@ let lastUiErrorTimestampMs = 0;
 const statusBadge = document.getElementById('statusBadge');
 const statusText = statusBadge.querySelector('.status-text');
 const targetUrl = document.getElementById('targetUrl');
+const authorizationToken = document.getElementById('authorizationToken');
 const repoPath = document.getElementById('repoPath');
 const configPath = document.getElementById('configPath');
 const browserProfile = document.getElementById('browserProfile');
+const controlForm = document.getElementById('controlForm');
 const startBtn = document.getElementById('startBtn');
 const stopBtn = document.getElementById('stopBtn');
 const terminal = document.getElementById('terminal');
@@ -41,7 +43,10 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function initializeEventListeners() {
-    startBtn.addEventListener('click', startPentest);
+    controlForm.addEventListener('submit', event => {
+        event.preventDefault();
+        startPentest();
+    });
     stopBtn.addEventListener('click', stopPentest);
     scrollLockBtn.addEventListener('click', toggleScrollLock);
     clearBtn.addEventListener('click', clearTerminal);
@@ -110,6 +115,7 @@ async function startPentest() {
     
     try {
         const payload = { url, mode };
+        if (authorizationToken.value) payload.authorizationToken = authorizationToken.value;
         if (repo) payload.repoPath = repo;
         if (configPath.value.trim()) payload.config = configPath.value.trim();
         payload.browserProfile = browserProfile.value;
@@ -123,10 +129,14 @@ async function startPentest() {
         const data = await response.json();
         
         if (!response.ok) {
-            throw new Error(data.error || 'Failed to start pentest');
+            const message = data.reason
+                ? `${data.error || 'Failed to start pentest'}: ${data.reason}`
+                : data.error || 'Failed to start pentest';
+            throw new Error(message);
         }
         
         currentWorkflowId = data.workflowId;
+        authorizationToken.value = '';
         addTerminalLine(`Workflow started: ${currentWorkflowId}`, 'success');
         addTerminalLine(`Target: ${url}`);
         if (repo) {

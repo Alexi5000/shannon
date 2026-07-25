@@ -17,10 +17,10 @@ Set `MOLTEN_MEMORY_API_URL=http://localhost:18790/api/memories` (Molten Bun Gate
 `configs/target-allowlist.json` includes:
 
 - Localhost and 127.0.0.1 for development.
-- TechTide staging (techtideai.io).
+- A historical techtideai.io entry retained for audit; production blocking prevents execution.
 - Internal stack URLs (4001 DevENV Kanban, 4002 OrcaFlow, 4003 DevENV ORCA, 18790 Molten Gateway) for internal security scans.
 
-Only targets on the allowlist (or localhost when consent is relaxed) can be tested. Production URLs are blocked when `production_block_enabled` is true.
+Only targets on the allowlist can be tested. Entries with a configured token require an exact token match, including localhost entries. Production URLs are blocked when `production_block_enabled` is true.
 
 ## Scheduled Internal Scans
 

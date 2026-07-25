@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Shannon - AI Pentester</title>
+    <link rel="icon" href="data:,">
     <link rel="stylesheet" href="/styles.css">
 </head>
 <body>
@@ -32,10 +33,15 @@
         <!-- Main Content -->
         <main class="main-content">
             <!-- Control Panel -->
-            <section class="control-panel">
+            <form class="control-panel" id="controlForm">
                 <div class="input-group">
                     <label for="targetUrl">TARGET</label>
                     <input type="text" id="targetUrl" placeholder="https://example.com" class="input-field">
+                </div>
+                <div class="input-group">
+                    <label for="authorizationToken">AUTHORIZATION TOKEN</label>
+                    <input type="password" id="authorizationToken" placeholder="Required by the target allowlist" class="input-field" autocomplete="off" spellcheck="false">
+                    <small class="input-hint">Used for this request only. It is not saved.</small>
                 </div>
                 <div class="input-group">
                     <label for="repoPath">REPO (Optional - enables white-box mode)</label>
@@ -55,10 +61,10 @@
                     </select>
                 </div>
                 <div class="button-group">
-                    <button id="startBtn" class="btn btn-primary">START PENTEST</button>
-                    <button id="stopBtn" class="btn btn-secondary" disabled>STOP</button>
+                    <button id="startBtn" class="btn btn-primary" type="submit">START PENTEST</button>
+                    <button id="stopBtn" class="btn btn-secondary" type="button" disabled>STOP</button>
                 </div>
-            </section>
+            </form>
 
             <!-- Pipeline Visualization -->
             <section class="pipeline-section">

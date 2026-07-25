@@ -38,10 +38,11 @@ process.env.PATH = `${nodeDir}${pathSep}${process.env.PATH || ''}`;
 console.log(chalk.gray(`[Worker Init] Node.js: ${process.execPath}`));
 console.log(chalk.gray(`[Worker Init] PATH updated to include: ${nodeDir}`));
 
-// Verify API key is loaded
+// Report credential readiness without logging any credential material.
 const apiKeySet = !!process.env.ANTHROPIC_API_KEY;
-const apiKeyPreview = process.env.ANTHROPIC_API_KEY?.substring(0, 20) || 'NOT SET';
-console.log(chalk.gray(`[Worker Init] ANTHROPIC_API_KEY: ${apiKeySet ? apiKeyPreview + '...' : 'NOT SET'}`));
+console.log(
+  chalk.gray(`[Worker Init] Anthropic credentials: ${apiKeySet ? 'configured' : 'not configured'}`)
+);
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 

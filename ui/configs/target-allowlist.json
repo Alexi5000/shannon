@@ -2,59 +2,39 @@
   "authorized_targets": [
     {
       "url": "http://localhost",
-      "authorized_by": "development-team",
       "authorization_token": "shannon-dev-local",
       "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "dev",
-      "notes": "Local development - all localhost targets authorized"
+      "scope": "dev"
     },
     {
       "url": "127.0.0.1",
-      "authorized_by": "development-team",
       "authorization_token": "shannon-dev-local",
       "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "dev",
-      "notes": "Local development - all 127.0.0.1 targets authorized"
-    },
-    {
-      "url": "techtideai.io",
-      "authorized_by": "security-team",
-      "authorization_token": "shannon-techtide-authorized",
-      "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "staging",
-      "notes": "Production-like target retained for audit history; production_block_enabled prevents execution"
+      "scope": "dev"
     },
     {
       "url": "http://localhost:4001",
-      "authorized_by": "security-team",
       "authorization_token": "shannon-internal",
       "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "internal",
-      "notes": "DevENV Kanban"
+      "scope": "internal"
     },
     {
       "url": "http://localhost:4002",
-      "authorized_by": "security-team",
       "authorization_token": "shannon-internal",
       "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "internal",
-      "notes": "OrcaFlow"
+      "scope": "internal"
     },
     {
       "url": "http://localhost:4003",
-      "authorized_by": "security-team",
       "authorization_token": "shannon-internal",
       "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "internal",
-      "notes": "DevENV ORCA"
+      "scope": "internal"
     },
     {
       "url": "http://localhost:18790",
-      "authorized_by": "security-team",
       "authorization_token": "shannon-internal",
       "expires_at": "2027-12-31T23:59:59.000Z",
-      "scope": "internal",
-      "notes": "Molten Gateway"
+      "scope": "internal"
     }
   ],
   "emergency_stop_enabled": true,

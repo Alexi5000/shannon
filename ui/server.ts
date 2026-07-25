@@ -4,7 +4,6 @@
 
 import { Hono } from 'hono';
 import { serveStatic } from 'hono/bun';
-import { cors } from 'hono/cors';
 import { WebSocket } from 'ws';
 import { temporal } from './temporal_bridge.js';
 import { startWebSocketServer } from './ws_server.js';
@@ -12,76 +11,14 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { config } from 'dotenv';
 import chalk from 'chalk';
+import { is_target_authorized } from './target_authorization.js';
 
 config();
 
 // Active workflow tracking for emergency stop
 const active_workflows = new Set<string>();
 
-// Simple authorization check (inlined to avoid dependencies)
-async function is_target_authorized(target_url: string): Promise<{ authorized: boolean; reason?: string; scope?: string }> {
-  try {
-    const allowlist_path = path.join(process.cwd(), '..', 'configs', 'target-allowlist.json');
-    
-    if (!fs.existsSync(allowlist_path)) {
-      // No allowlist - allow localhost only
-      if (target_url.includes('localhost') || target_url.includes('127.0.0.1')) {
-        return { authorized: true, scope: 'dev' };
-      }
-      return { authorized: false, reason: 'No allowlist configured' };
-    }
-    
-    const allowlist = JSON.parse(fs.readFileSync(allowlist_path, 'utf8'));
-    
-    // Check if require_explicit_consent is disabled - if so, allow all except production
-    if (allowlist.require_explicit_consent === false) {
-      // Permissive mode - only block obvious production URLs
-      if (allowlist.production_block_enabled !== false) {
-        const production_indicators = [
-          /^https:\/\/(?!.*(?:staging|dev|qa|sandbox|test|local|localhost))/i,
-          /^https:\/\/api\.(?!.*(?:staging|dev))/i,
-          /^https:\/\/www\.(?!.*(?:staging|dev))/i
-        ];
-        
-        for (const pattern of production_indicators) {
-          if (pattern.test(target_url)) {
-            return { authorized: false, reason: 'Target appears to be production (blocked by heuristic)' };
-          }
-        }
-      }
-      
-      // Not production - authorize
-      console.log(`[AUTH] Authorized: ${target_url} (permissive mode, production_block_enabled=${allowlist.production_block_enabled !== false})`);
-      return { authorized: true, scope: 'dev' };
-    }
-    
-    // Strict mode - check explicit allowlist
-    for (const auth of (allowlist.authorized_targets || [])) {
-      if (target_url.includes(auth.url)) {
-        const not_expired = !auth.expires_at || new Date(auth.expires_at) > new Date();
-        if (not_expired) {
-          console.log(`[AUTH] Authorized: ${target_url} via allowlist entry for ${auth.url}`);
-          return { authorized: true, scope: auth.scope };
-        }
-      }
-    }
-    
-    console.log(`[AUTH] Denied: ${target_url} - not in allowlist (strict mode)`);
-    return { authorized: false, reason: 'Target not in allowlist (require_explicit_consent=true)' };
-  } catch (err) {
-    console.error('[AUTH] Error reading allowlist:', err);
-    // Error reading allowlist - allow localhost for safety
-    if (target_url.includes('localhost') || target_url.includes('127.0.0.1')) {
-      return { authorized: true, scope: 'dev' };
-    }
-    return { authorized: false, reason: `Authorization check failed: ${err instanceof Error ? err.message : String(err)}` };
-  }
-}
-
 const app = new Hono();
-
-// Enable CORS for cross-origin requests
-app.use('/*', cors());
 
 // Serve static files from public directory
 app.use('/*', serveStatic({ root: './public' }));
@@ -216,7 +153,7 @@ app.get('/api/status', async (c) => {
   }
 });
 
-// Start a new pentest (unrestricted - red team mode)
+// Start a new authorized pentest.
 app.post('/api/pentest/start', async (c) => {
   try {
     let body: Record<string, unknown> = {};
@@ -232,13 +169,15 @@ app.post('/api/pentest/start', async (c) => {
     const mode = body.mode === 'white_box' || body.mode === 'black_box' ? body.mode : undefined;
     const browserProfile = typeof body.browserProfile === 'string' ? body.browserProfile : undefined;
     const allow_parallel = body.allowParallel === true;
+    const authorization_token =
+      typeof body.authorizationToken === 'string' ? body.authorizationToken : undefined;
 
     if (!url) {
       return c.json({ error: 'Missing required field: url' }, 400);
     }
 
     // Authorization gate -- check before any workflow starts
-    const auth_result = await is_target_authorized(url);
+    const auth_result = is_target_authorized(url, authorization_token);
     if (!auth_result.authorized) {
       return c.json({
         error: 'Target not authorized',
@@ -286,7 +225,7 @@ app.post('/api/pentest/start', async (c) => {
       success: true,
       workflowId,
       mode: execution_mode,
-      scope: 'unrestricted',
+      scope: auth_result.scope,
       browserProfile: browserProfile ?? 'red_team',
       message: `Pentest started successfully in ${execution_mode} mode`
     });
@@ -510,12 +449,14 @@ async function findReportFile(workflowId: string): Promise<string | null> {
 // Start servers
 const SHANNON_PORT = parseInt(process.env.SHANNON_PORT || '4005');
 const SHANNON_WS_PORT = parseInt(process.env.SHANNON_WS_PORT || '4006');
+const SHANNON_HOST = process.env.SHANNON_HOST || '127.0.0.1';
 
 // Start WebSocket server
-startWebSocketServer(SHANNON_WS_PORT);
+startWebSocketServer(SHANNON_WS_PORT, SHANNON_HOST);
 
 // Start HTTP server
 export default {
+  hostname: SHANNON_HOST,
   port: SHANNON_PORT,
   fetch: app.fetch,
 };

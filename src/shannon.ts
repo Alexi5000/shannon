@@ -24,6 +24,7 @@
 import http from 'node:http';
 import dotenv from 'dotenv';
 import { Connection, Client } from '@temporalio/client';
+import { is_target_authorized } from './authorization/target-allowlist.js';
 
 dotenv.config();
 
@@ -184,6 +185,21 @@ const server = http.createServer((req, res) => {
         if (!params.targetUrl) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'targetUrl is required' }));
+          return;
+        }
+
+        const authorization = await is_target_authorized(
+          params.targetUrl,
+          typeof params.authorizationToken === 'string'
+            ? params.authorizationToken
+            : undefined,
+        );
+        if (!authorization.authorized) {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'Target not authorized',
+            reason: authorization.reason,
+          }));
           return;
         }
 

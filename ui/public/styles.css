@@ -152,6 +152,7 @@ body {
 .port-info {
     font-size: 11px;
     color: #666666;
+    white-space: nowrap;
 }
 
 .port-label {
@@ -193,7 +194,7 @@ body {
 /* Control Panel */
 .control-panel {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr auto;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 12px;
     padding: 16px;
     background: #111111;
@@ -209,7 +210,7 @@ body {
 
 .input-group label {
     font-size: 11px;
-    color: #666666;
+    color: #A0A0A0;
     letter-spacing: 1px;
     font-weight: 600;
 }
@@ -231,7 +232,13 @@ body {
 }
 
 .input-field::placeholder {
-    color: #666666;
+    color: #8A8A8A;
+}
+
+.input-hint {
+    color: #8A8A8A;
+    font-size: 10px;
+    line-height: 1.35;
 }
 
 .button-group {
@@ -381,6 +388,7 @@ body {
 
 .pipeline-legend {
     display: flex;
+    flex-wrap: wrap;
     gap: 16px;
     font-size: 11px;
     color: #666666;
@@ -533,7 +541,7 @@ body {
 }
 
 /* Responsive */
-@media (max-width: 1200px) {
+@media (max-width: 1000px) {
     .control-panel {
         grid-template-columns: 1fr 1fr;
     }
@@ -544,13 +552,32 @@ body {
 }
 
 @media (max-width: 768px) {
+    html,
+    body {
+        height: auto;
+        min-height: 100%;
+        overflow: auto;
+    }
+
     .app-container {
+        height: auto;
+        min-height: 100dvh;
         padding: 8px;
     }
     
     .header {
         flex-direction: column;
         gap: 12px;
+    }
+
+    .header-right {
+        width: 100%;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .main-content {
+        overflow: visible;
     }
     
     .control-panel {
@@ -563,5 +590,16 @@ body {
     
     .pipeline-flow {
         flex-wrap: wrap;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    *,
+    *::before,
+    *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        scroll-behavior: auto !important;
+        transition-duration: 0.01ms !important;
     }
 }

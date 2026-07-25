@@ -2,6 +2,13 @@
 
 Claude Code-inspired web interface for Shannon with real-time workflow visualization.
 
+## Target authorization
+
+The UI fails closed unless a target is present in `configs/target-allowlist.json`.
+Set `SHANNON_ALLOWLIST_PATH` to use a mounted allowlist. Every entry with a
+configured token requires the matching `authorizationToken` in
+`POST /api/pentest/start`, including loopback entries.
+
 ## Features
 
 - **Dark terminal aesthetic** - Near-black background, JetBrains Mono font, minimal chrome
@@ -48,8 +55,12 @@ Create `.env` in `shannon/ui/`:
 ```bash
 SHANNON_PORT=4005
 SHANNON_WS_PORT=4006
+SHANNON_HOST=127.0.0.1
 TEMPORAL_ADDRESS=localhost:7233
 ```
+
+The local default binds HTTP and WebSocket listeners to `127.0.0.1`. The
+container image sets `SHANNON_HOST=0.0.0.0` so published Docker ports work.
 
 ## API Endpoints
 
